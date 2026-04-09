@@ -51,7 +51,7 @@ fi
 
 cat <<'EOF'
 
-Strava Elevate dev environment is running.
+STRAVA Buddy dev environment is running.
 
 Next steps:
   1. Open chrome://extensions

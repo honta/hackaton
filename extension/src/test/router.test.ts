@@ -37,9 +37,9 @@ const service: BackgroundService = {
 describe('background message router', () => {
   it('routes successful messages', async () => {
     const router = createMessageRouter(service);
-    const response = await router({ type: 'stats:getDashboard', windowDays: 30 });
+    const response = await router({ type: 'stats:getDashboard', windowDays: 30 }, { tabId: 7 });
     expect(response.ok).toBe(true);
-    expect(service.getDashboard).toHaveBeenCalledWith(30);
+    expect(service.getDashboard).toHaveBeenCalledWith({ tabId: 7 }, 30);
   });
 
   it('normalizes service errors into RPC failures', async () => {

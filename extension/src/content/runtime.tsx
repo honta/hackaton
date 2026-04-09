@@ -1,4 +1,5 @@
 import { createRoot, type Root } from 'react-dom/client';
+import { createLogger } from '@/shared/logger';
 import { ContentApp, type PageContext } from './app';
 import styles from './styles.css?inline';
 
@@ -7,7 +8,8 @@ export interface MountSpec {
   anchor: Element;
 }
 
-const ROOT_ID = 'strava-elevate-root';
+const ROOT_ID = 'strava-buddy-root';
+const logger = createLogger('content:runtime');
 
 const PAGE_SELECTORS = {
   dashboard: ['#dashboard-feed', '[data-testid="dashboard-feed"]', '.dashboard-feed', 'main'],
@@ -95,6 +97,7 @@ export function startRuntime() {
     const page = parsePageContext(window.location.pathname);
 
     if (!page) {
+      logger.debug('No supported Strava page detected', { pathname: window.location.pathname });
       const existing = document.getElementById(ROOT_ID);
       existing?.remove();
       root?.unmount();
@@ -110,6 +113,7 @@ export function startRuntime() {
       return;
     }
 
+    logger.info('Rendering widget', { page, mountMode: spec.mode });
     currentKey = nextKey;
     root?.unmount();
     const { mountPoint } = ensureHost(spec);
@@ -130,10 +134,12 @@ export function startRuntime() {
   let lastHref = window.location.href;
   window.setInterval(() => {
     if (window.location.href !== lastHref) {
+      logger.info('Detected navigation change', { from: lastHref, to: window.location.href });
       lastHref = window.location.href;
       render();
     }
   }, 600);
 
+  logger.info('Starting content runtime');
   render();
 }

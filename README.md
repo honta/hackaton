@@ -1,4 +1,4 @@
-# Strava Elevate MVP
+# STRAVA Buddy
 
 A Chrome Extension (Manifest V3) that enhances the Strava web experience with dashboard analytics, kudos intelligence, segment insights, streaks, charts, and a live-data route heatmap.
 

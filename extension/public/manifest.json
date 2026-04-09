@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Strava Elevate MVP",
+  "name": "STRAVA Buddy",
   "version": "0.1.0",
   "description": "Adds premium analytics overlays to the Strava web experience.",
   "permissions": [
@@ -27,6 +27,6 @@
     }
   ],
   "action": {
-    "default_title": "Strava Elevate MVP"
+    "default_title": "STRAVA Buddy"
   }
 }

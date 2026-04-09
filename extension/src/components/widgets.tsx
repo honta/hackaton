@@ -73,11 +73,13 @@ function Avatar({ src, name }: { src?: string; name: string }) {
 }
 
 export function AuthPrompt({
+  errorMessage,
   loading,
   onConnect,
   pageLabel,
   floating,
 }: {
+  errorMessage?: string | null;
   loading: boolean;
   onConnect: () => void;
   pageLabel: string;
@@ -86,7 +88,7 @@ export function AuthPrompt({
   return (
     <Panel floating={floating}>
       <div className="bg-gradient-to-br from-lava-500 via-lava-400 to-orange-300 px-6 py-6 text-white">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/70">Strava Elevate</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/70">STRAVA Buddy</p>
         <h2 className="mt-3 text-2xl font-semibold">Unlock premium analytics on {pageLabel}.</h2>
         <p className="mt-2 text-sm text-white/85">
           Use the Strava account already open in this browser to render live dashboard stats, kudos intelligence,
@@ -103,6 +105,11 @@ export function AuthPrompt({
         <p className="text-xs leading-5 text-slate-500">
           Make sure you are already signed in on `strava.com` in this browser before clicking connect.
         </p>
+        {errorMessage ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        ) : null}
         <button
           className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           disabled={loading}

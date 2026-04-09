@@ -10,15 +10,19 @@ import type {
   SegmentInsights,
 } from '@/shared/types';
 
+export interface RequestContext {
+  tabId?: number;
+}
+
 export interface BackgroundService {
-  getAuthStatus(): Promise<AuthStatus>;
-  login(): Promise<AuthStatus>;
-  logout(): Promise<AuthStatus>;
-  getDashboard(windowDays?: 7 | 30 | 90): Promise<DashboardAnalytics>;
-  getKudos(activityId?: number): Promise<KudosAnalytics>;
-  getSegmentInsights(segmentId: number): Promise<SegmentInsights>;
-  getHeatmap(): Promise<HeatmapOverlay>;
-  getInsights(windowDays?: 7 | 30 | 90): Promise<InsightsPayload>;
+  getAuthStatus(context?: RequestContext): Promise<AuthStatus>;
+  login(context?: RequestContext): Promise<AuthStatus>;
+  logout(context?: RequestContext): Promise<AuthStatus>;
+  getDashboard(context?: RequestContext, windowDays?: 7 | 30 | 90): Promise<DashboardAnalytics>;
+  getKudos(context?: RequestContext, activityId?: number): Promise<KudosAnalytics>;
+  getSegmentInsights(context: RequestContext | undefined, segmentId: number): Promise<SegmentInsights>;
+  getHeatmap(context?: RequestContext): Promise<HeatmapOverlay>;
+  getInsights(context?: RequestContext, windowDays?: 7 | 30 | 90): Promise<InsightsPayload>;
 }
 
 export class RpcServiceError extends Error {
@@ -53,25 +57,25 @@ function toFailure(error: unknown): RpcResponse<never> {
 }
 
 export function createMessageRouter(service: BackgroundService) {
-  return async function route(message: RpcRequest): Promise<RpcResponse<unknown>> {
+  return async function route(message: RpcRequest, context?: RequestContext): Promise<RpcResponse<unknown>> {
     try {
       switch (message.type) {
         case 'auth:status':
-          return { ok: true, data: await service.getAuthStatus() };
+          return { ok: true, data: await service.getAuthStatus(context) };
         case 'auth:login':
-          return { ok: true, data: await service.login() };
+          return { ok: true, data: await service.login(context) };
         case 'auth:logout':
-          return { ok: true, data: await service.logout() };
+          return { ok: true, data: await service.logout(context) };
         case 'stats:getDashboard':
-          return { ok: true, data: await service.getDashboard(message.windowDays) };
+          return { ok: true, data: await service.getDashboard(context, message.windowDays) };
         case 'stats:getKudos':
-          return { ok: true, data: await service.getKudos(message.activityId) };
+          return { ok: true, data: await service.getKudos(context, message.activityId) };
         case 'stats:getSegmentInsights':
-          return { ok: true, data: await service.getSegmentInsights(message.segmentId) };
+          return { ok: true, data: await service.getSegmentInsights(context, message.segmentId) };
         case 'stats:getHeatmap':
-          return { ok: true, data: await service.getHeatmap() };
+          return { ok: true, data: await service.getHeatmap(context) };
         case 'stats:getInsights':
-          return { ok: true, data: await service.getInsights(message.windowDays) };
+          return { ok: true, data: await service.getInsights(context, message.windowDays) };
         default:
           return toFailure(new RpcServiceError('UNKNOWN', 'Unsupported message.'));
       }

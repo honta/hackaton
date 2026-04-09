@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AuthPrompt, DashboardWidget, ErrorPanel, KudosWidget, LoadingPanel, SegmentWidget } from '@/components/widgets';
+import { createLogger } from '@/shared/logger';
 import type {
   AuthStatus,
   DashboardAnalytics,
@@ -10,6 +11,8 @@ import type {
   TimeWindow,
 } from '@/shared/types';
 
+const logger = createLogger('content:app');
+
 export type PageContext =
   | { kind: 'dashboard' }
   | { kind: 'activity'; activityId: number }
@@ -18,6 +21,7 @@ export type PageContext =
 function sendMessage<T>(message: RpcRequest): Promise<RpcResponse<T>> {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage(message, (response: RpcResponse<T>) => {
+      logger.debug('RPC completed', { message, response });
       resolve(response);
     });
   });
@@ -37,32 +41,44 @@ function pageLabel(page: PageContext): string {
 export function ContentApp({ page, floating }: { page: PageContext; floating?: boolean }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     void sendMessage<AuthStatus>({ type: 'auth:status' }).then((response) => {
       if (response.ok) {
+        logger.info('Loaded auth status', response.data);
         setAuthStatus(response.data);
       }
     });
   }, []);
 
   async function handleConnect() {
+    setAuthError(null);
+    logger.info('Connect button clicked');
     setAuthBusy(true);
     const response = await sendMessage<AuthStatus>({ type: 'auth:login' });
     setAuthBusy(false);
 
     if (response.ok) {
+      logger.info('Connect succeeded', response.data);
       setAuthStatus(response.data);
+    } else {
+      logger.warn('Connect failed', response.error);
+      setAuthError(response.error.message);
     }
   }
 
   async function handleDisconnect() {
+    logger.info('Disconnect button clicked');
     setAuthBusy(true);
     const response = await sendMessage<AuthStatus>({ type: 'auth:logout' });
     setAuthBusy(false);
 
     if (response.ok) {
+      logger.info('Disconnect succeeded');
       setAuthStatus(response.data);
+    } else {
+      logger.warn('Disconnect failed', response.error);
     }
   }
 
@@ -71,7 +87,15 @@ export function ContentApp({ page, floating }: { page: PageContext; floating?: b
   }
 
   if (!authStatus.authenticated) {
-    return <AuthPrompt floating={floating} loading={authBusy} onConnect={handleConnect} pageLabel={pageLabel(page)} />;
+    return (
+      <AuthPrompt
+        errorMessage={authError}
+        floating={floating}
+        loading={authBusy}
+        onConnect={handleConnect}
+        pageLabel={pageLabel(page)}
+      />
+    );
   }
 
   return <AuthenticatedContent floating={floating} onDisconnect={handleDisconnect} page={page} />;
@@ -114,8 +138,10 @@ function DashboardContent({ onDisconnect, floating }: { onDisconnect: () => void
       }
 
       if (response.ok) {
+        logger.info('Dashboard analytics loaded', { windowDays });
         setData(response.data);
       } else {
+        logger.warn('Dashboard analytics failed', response.error);
         setError(response.error.message);
       }
     });
@@ -165,8 +191,10 @@ function KudosContent({ floating }: { floating?: boolean }) {
       }
 
       if (response.ok) {
+        logger.info('Kudos analytics loaded');
         setData(response.data);
       } else {
+        logger.warn('Kudos analytics failed', response.error);
         setError(response.error.message);
       }
     });
@@ -208,8 +236,10 @@ function SegmentContent({ page, floating }: { page: Extract<PageContext, { kind:
       }
 
       if (response.ok) {
+        logger.info('Segment insights loaded', { segmentId: page.segmentId });
         setData(response.data);
       } else {
+        logger.warn('Segment insights failed', response.error);
         setError(response.error.message);
       }
     });
