@@ -97,16 +97,15 @@ export interface ActivityStream {
 }
 
 export interface StoredAuthSession {
+  mode: 'browser-session';
   athlete: StravaAthlete;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  scope: string;
+  lastValidatedAt: number;
 }
 
 export interface AuthStatus {
   authenticated: boolean;
   athlete?: StravaAthlete;
+  mode?: 'browser-session';
   expiresAt?: number;
   scope?: string;
 }

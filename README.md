@@ -5,57 +5,21 @@ A Chrome Extension (Manifest V3) that enhances the Strava web experience with da
 ## Workspace
 
 - `extension/`: Chrome MV3 extension built with React, Vite, TypeScript, Tailwind, and Recharts
-- `auth-bridge/`: local Fastify service that owns Strava OAuth token exchange and refresh
+- `auth-bridge/`: legacy OAuth bridge kept in the repo, but no longer required for the default demo flow
 
 ## Prerequisites
 
 - Node.js 20+
 - `pnpm` 10+ (recommended)
-- A Strava API application from `https://www.strava.com/settings/api`
-
-## Environment
-
-Create `auth-bridge/.env`:
-
-```bash
-STRAVA_CLIENT_ID=your_client_id
-STRAVA_CLIENT_SECRET=your_client_secret
-STRAVA_REDIRECT_URI=http://127.0.0.1:8787/auth/strava/callback
-AUTH_BRIDGE_PORT=8787
-```
-
-Create `extension/.env.local`:
-
-```bash
-VITE_AUTH_BRIDGE_BASE_URL=http://127.0.0.1:8787
-```
+- An active Strava login in the same Chrome profile where the extension will run
 
 ## Install
 
 ```bash
 corepack pnpm install
-corepack pnpm build
 ```
 
 If `pnpm` is not installed globally, `corepack` will provision it automatically.
-
-## Run Once
-
-```bash
-cp auth-bridge/.env.example auth-bridge/.env
-cp extension/.env.example extension/.env.local
-```
-
-Then fill in your real Strava credentials:
-
-- `auth-bridge/.env`
-- `extension/.env.local`
-
-Your Strava app callback URL must be:
-
-```text
-http://127.0.0.1:8787/auth/strava/callback
-```
 
 ## Run Dev
 
@@ -67,13 +31,11 @@ corepack pnpm dev
 
 What this does:
 
-- verifies the required env files exist
 - installs dependencies if they are missing
-- starts the local OAuth auth bridge
 - starts the extension build watcher
 - waits for `extension/dist` to be ready
 
-The command keeps both processes running until you press `Ctrl+C`.
+The command keeps the watcher running until you press `Ctrl+C`.
 
 ## Load The Extension
 
@@ -82,38 +44,44 @@ The command keeps both processes running until you press `Ctrl+C`.
 3. Click Load unpacked
 4. Select `extension/dist`
 5. Open `https://www.strava.com/dashboard`
-6. Use the injected Connect with Strava button
+6. Open `https://www.strava.com/dashboard` while already signed in to Strava
+7. Click the injected `Use current Strava session` button
 
 If the extension is already loaded and you rebuild, click the Reload button on the extension card in Chrome.
 
 ## Manual Commands
 
 ```bash
-corepack pnpm --filter auth-bridge dev
 corepack pnpm --filter extension build --watch
 corepack pnpm test
 ```
 
+## Session-Based Login
+
+- The extension does not require a Strava client ID or secret for the default flow.
+- Authentication uses the existing logged-in Strava browser session.
+- If you sign out of Strava, click Disconnect in the extension overlay or reconnect after signing back in.
+
 ## Architecture
 
-- Background service worker manages OAuth, token refresh, Strava API requests, caching, and message RPC.
+- Background service worker manages browser-session auth state, Strava API requests, caching, and message RPC.
 - Content script mounts page-aware widgets inside Shadow DOM roots and reinjects after Strava DOM changes.
 - Shared analytics utilities aggregate dashboard totals, charts, streaks, achievements, kudos rankings, segment comparisons, and route heatmap geometry.
 - `chrome.storage.local` stores auth state and cached API responses.
 
 ## What Works
 
-- Real Strava OAuth through the local auth bridge
-- Access token storage, refresh-token rotation, and manual deauthorization
+- One-click login using the active Strava browser session
+- Local session persistence inside the extension without manual OAuth setup
 - Dashboard analytics overlay with totals, recent-window cards, weekly and monthly charts, streaks, fun facts, insights, achievements, and route heatmap
 - Kudos analytics sampled from the most recent activities
 - Segment insights based on the current segment and sampled recent detailed activities
 - Fallback floating widgets when preferred Strava anchors are not available
-- Unit and integration tests for analytics logic, auth bridge flows, background routing, and content mount resolution
+- Unit and integration tests for analytics logic, session auth flow, background routing, and content mount resolution
 
 ## What Is Mocked
 
-- None by default. All user-facing analytics are derived from live Strava API data.
+- None by default. All user-facing analytics are derived from live Strava data when the current browser session is authenticated.
 
 ## API Limitations
 
@@ -121,3 +89,4 @@ corepack pnpm test
 - Segment relative performance is derived from recently fetched detailed activities because the full segment efforts list endpoint is subscription-gated.
 - Heatmap routes use cached stream samples from the newest activities instead of loading every historical activity.
 - Athlete stats returned by Strava exclude activities that are not visible to Everyone.
+- Session-backed requests depend on Strava continuing to expose the current browser session to the endpoints used by the extension.

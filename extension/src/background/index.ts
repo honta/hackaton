@@ -20,9 +20,3 @@ chrome.runtime.onMessage.addListener((message: RpcRequest, _sender, sendResponse
 
   return true;
 });
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'strava:refresh-token') {
-    void service.getAuthStatus();
-  }
-});

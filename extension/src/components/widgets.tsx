@@ -89,22 +89,27 @@ export function AuthPrompt({
         <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/70">Strava Elevate</p>
         <h2 className="mt-3 text-2xl font-semibold">Unlock premium analytics on {pageLabel}.</h2>
         <p className="mt-2 text-sm text-white/85">
-          Connect Strava to render live dashboard stats, kudos intelligence, segment insights, and route heatmaps.
+          Use the Strava account already open in this browser to render live dashboard stats, kudos intelligence,
+          segment insights, and route heatmaps.
         </p>
       </div>
       <div className="space-y-4 px-6 py-5">
         <ul className="space-y-2 text-sm text-slate-600">
+          <li>No client ID, secret, or local auth bridge required</li>
           <li>Dashboard totals, streaks, charts, and achievements</li>
           <li>Recent kudos leaderboard with fan badges</li>
           <li>Sampled segment performance and route heatmap</li>
         </ul>
+        <p className="text-xs leading-5 text-slate-500">
+          Make sure you are already signed in on `strava.com` in this browser before clicking connect.
+        </p>
         <button
           className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           disabled={loading}
           onClick={onConnect}
           type="button"
         >
-          {loading ? 'Connecting...' : 'Connect with Strava'}
+          {loading ? 'Connecting...' : 'Use current Strava session'}
         </button>
       </div>
     </Panel>

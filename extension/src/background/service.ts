@@ -20,45 +20,15 @@ import type {
   TimeWindow,
   SegmentInsights,
 } from '@/shared/types';
-import { clearStoredAuth, getCached, getStoredAuth, setCached, setStoredAuth } from './storage';
+import { clearCache, clearStoredAuth, getCached, getStoredAuth, setCached, setStoredAuth } from './storage';
 import { RpcServiceError, type BackgroundService } from './router';
 
 const STRAVA_API_BASE = 'https://www.strava.com/api/v3';
-const AUTH_REFRESH_ALARM = 'strava:refresh-token';
-const DEFAULT_AUTH_BRIDGE = 'http://127.0.0.1:8787';
-
-interface BridgeSessionPayload {
-  athlete: StravaAthlete;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  scope: string;
-}
+const SESSION_REVALIDATE_MS = 5 * 60 * 1000;
 
 interface CreateServiceDeps {
   fetchImpl?: typeof fetch;
   now?: () => number;
-  authBridgeBaseUrl?: string;
-  launchWebAuthFlow?: (options: chrome.identity.WebAuthFlowDetails) => Promise<string | undefined>;
-  getRedirectURL?: (path?: string) => string;
-}
-
-function authBridgeBaseUrl(explicit?: string) {
-  return explicit ?? import.meta.env.VITE_AUTH_BRIDGE_BASE_URL ?? DEFAULT_AUTH_BRIDGE;
-}
-
-function getLaunchWebAuthFlow() {
-  return (options: chrome.identity.WebAuthFlowDetails) =>
-    new Promise<string | undefined>((resolve, reject) => {
-      chrome.identity.launchWebAuthFlow(options, (callbackUrl) => {
-        if (chrome.runtime.lastError) {
-          reject(new RpcServiceError('AUTH_FAILED', chrome.runtime.lastError.message ?? 'OAuth flow failed.'));
-          return;
-        }
-
-        resolve(callbackUrl);
-      });
-    });
 }
 
 function parseRateLimit(response: Response) {
@@ -78,71 +48,24 @@ async function parseJson<T>(response: Response): Promise<T> {
 export function createBackgroundService({
   fetchImpl = fetch,
   now = Date.now,
-  authBridgeBaseUrl: bridgeBaseUrl,
-  launchWebAuthFlow = getLaunchWebAuthFlow(),
-  getRedirectURL = chrome.identity.getRedirectURL,
 }: CreateServiceDeps = {}): BackgroundService {
-  const bridgeUrl = authBridgeBaseUrl(bridgeBaseUrl);
-
-  async function getAuth(): Promise<StoredAuthSession> {
-    const auth = await getStoredAuth();
-
-    if (!auth) {
-      throw new RpcServiceError('AUTH_REQUIRED', 'Connect your Strava account to unlock analytics.');
-    }
-
-    if (auth.expiresAt <= now() + 60_000) {
-      return refreshAuth(auth);
-    }
-
-    return auth;
-  }
-
-  async function scheduleRefresh(expiresAt: number) {
-    const when = Math.max(expiresAt - 5 * 60 * 1000, now() + 30_000);
-    await chrome.alarms.create(AUTH_REFRESH_ALARM, { when });
-  }
-
-  async function refreshAuth(auth: StoredAuthSession): Promise<StoredAuthSession> {
-    const response = await fetchImpl(`${bridgeUrl}/auth/strava/token/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        refreshToken: auth.refreshToken,
-      }),
-    });
-
-    if (!response.ok) {
-      await clearStoredAuth();
-      throw new RpcServiceError('AUTH_FAILED', 'Token refresh failed. Please reconnect Strava.');
-    }
-
-    const refreshed = (await response.json()) as BridgeSessionPayload;
-    const stored: StoredAuthSession = {
-      ...refreshed,
-    };
-
-    await setStoredAuth(stored);
-    await scheduleRefresh(stored.expiresAt);
-    return stored;
-  }
-
-  async function stravaFetch<T>(path: string, init?: RequestInit, retryOnAuthFailure = true): Promise<T> {
-    const auth = await getAuth();
+  async function stravaFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetchImpl(`${STRAVA_API_BASE}${path}`, {
       ...init,
+      credentials: 'include',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${auth.accessToken}`,
+        'X-Requested-With': 'XMLHttpRequest',
         ...(init?.headers ?? {}),
       },
     });
 
-    if (response.status === 401 && retryOnAuthFailure) {
-      await refreshAuth(auth);
-      return stravaFetch<T>(path, init, false);
+    if (response.status === 401 || response.status === 403) {
+      await clearStoredAuth();
+      throw new RpcServiceError(
+        'AUTH_REQUIRED',
+        'Open Strava in this browser, sign in, then click "Use current Strava session".',
+      );
     }
 
     if (response.status === 429) {
@@ -154,6 +77,34 @@ export function createBackgroundService({
     }
 
     return parseJson<T>(response);
+  }
+
+  async function probeSession(): Promise<StravaAthlete> {
+    return stravaFetch<StravaAthlete>('/athlete', { cache: 'no-store' });
+  }
+
+  async function getAuth(): Promise<StoredAuthSession> {
+    const auth = await getStoredAuth();
+
+    if (!auth) {
+      throw new RpcServiceError(
+        'AUTH_REQUIRED',
+        'Use your current Strava browser session to unlock analytics.',
+      );
+    }
+
+    if (auth.lastValidatedAt + SESSION_REVALIDATE_MS <= now()) {
+      const athlete = await probeSession();
+      const refreshedAuth: StoredAuthSession = {
+        mode: 'browser-session',
+        athlete,
+        lastValidatedAt: now(),
+      };
+      await setStoredAuth(refreshedAuth);
+      return refreshedAuth;
+    }
+
+    return auth;
   }
 
   async function cached<T>(key: string, ttlMs: number, producer: () => Promise<T>): Promise<T> {
@@ -257,79 +208,42 @@ export function createBackgroundService({
         return { authenticated: false };
       }
 
-      const ensured = auth.expiresAt <= now() + 60_000 ? await refreshAuth(auth) : auth;
+      try {
+        const ensured = auth.lastValidatedAt + SESSION_REVALIDATE_MS <= now()
+          ? await getAuth()
+          : auth;
 
-      return {
-        authenticated: true,
-        athlete: ensured.athlete,
-        expiresAt: ensured.expiresAt,
-        scope: ensured.scope,
-      };
+        return {
+          authenticated: true,
+          athlete: ensured.athlete,
+          mode: ensured.mode,
+        };
+      } catch {
+        await clearStoredAuth();
+        return { authenticated: false };
+      }
     },
 
     async login(): Promise<AuthStatus> {
-      const redirectUrl = getRedirectURL('strava_elevate');
-      const authUrl = `${bridgeUrl}/auth/strava/start?return_to=${encodeURIComponent(redirectUrl)}`;
-      const callbackUrl = await launchWebAuthFlow({
-        url: authUrl,
-        interactive: true,
-      });
-
-      if (!callbackUrl) {
-        throw new RpcServiceError('AUTH_FAILED', 'OAuth flow was cancelled.');
-      }
-
-      const sessionId = new URL(callbackUrl).searchParams.get('session');
-
-      if (!sessionId) {
-        throw new RpcServiceError('AUTH_FAILED', 'Missing handoff session from auth bridge.');
-      }
-
-      const response = await fetchImpl(`${bridgeUrl}/auth/strava/session/consume`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ sessionId }),
-      });
-
-      if (!response.ok) {
-        throw new RpcServiceError('AUTH_FAILED', 'Failed to consume auth bridge session.');
-      }
-
-      const payload = (await response.json()) as BridgeSessionPayload;
+      const athlete = await probeSession();
       const auth: StoredAuthSession = {
-        ...payload,
+        mode: 'browser-session',
+        athlete,
+        lastValidatedAt: now(),
       };
 
       await setStoredAuth(auth);
-      await scheduleRefresh(auth.expiresAt);
 
       return {
         authenticated: true,
         athlete: auth.athlete,
-        expiresAt: auth.expiresAt,
-        scope: auth.scope,
+        mode: auth.mode,
       };
     },
 
     async logout(): Promise<AuthStatus> {
-      const auth = await getStoredAuth();
-
-      if (auth) {
-        await fetchImpl(`${bridgeUrl}/auth/strava/deauthorize`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            accessToken: auth.accessToken,
-          }),
-        }).catch(() => undefined);
-      }
-
       await clearStoredAuth();
-      await chrome.alarms.clear(AUTH_REFRESH_ALARM);
+      await clearCache();
       return { authenticated: false };
     },
 

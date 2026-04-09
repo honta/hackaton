@@ -5,15 +5,11 @@
   "description": "Adds premium analytics overlays to the Strava web experience.",
   "permissions": [
     "storage",
-    "alarms",
-    "scripting",
-    "identity"
+    "scripting"
   ],
   "host_permissions": [
     "https://www.strava.com/*",
-    "https://www.strava.com/api/*",
-    "http://127.0.0.1/*",
-    "http://localhost/*"
+    "https://www.strava.com/api/*"
   ],
   "background": {
     "service_worker": "assets/background.js",

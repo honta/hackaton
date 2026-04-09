@@ -25,6 +25,15 @@ export async function clearStoredAuth(): Promise<void> {
   await chrome.storage.local.remove(AUTH_KEY);
 }
 
+export async function clearCache(): Promise<void> {
+  const allValues = await chrome.storage.local.get(null);
+  const cacheKeys = Object.keys(allValues).filter((key) => key.startsWith(CACHE_PREFIX));
+
+  if (cacheKeys.length > 0) {
+    await chrome.storage.local.remove(cacheKeys);
+  }
+}
+
 export async function getCached<T>(key: string): Promise<T | null> {
   const entry = await getLocal<CacheEntry<T>>(`${CACHE_PREFIX}${key}`);
 
