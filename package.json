@@ -7,6 +7,9 @@
     "auth-bridge"
   ],
   "scripts": {
+    "dev": "bash scripts/run-dev.sh",
+    "dev:auth": "corepack pnpm --filter auth-bridge dev",
+    "dev:extension": "corepack pnpm --filter extension build --watch",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"

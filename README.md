@@ -33,19 +33,47 @@ VITE_AUTH_BRIDGE_BASE_URL=http://127.0.0.1:8787
 ## Install
 
 ```bash
-pnpm install
-pnpm build
+corepack pnpm install
+corepack pnpm build
 ```
 
-If `pnpm` is not available, `npm install` also works because the repo uses standard workspace manifests in addition to `pnpm-workspace.yaml`.
+If `pnpm` is not installed globally, `corepack` will provision it automatically.
 
-## Run The Auth Bridge
+## Run Once
 
 ```bash
-pnpm --filter auth-bridge dev
+cp auth-bridge/.env.example auth-bridge/.env
+cp extension/.env.example extension/.env.local
 ```
 
-The Strava app callback domain must allow `127.0.0.1`.
+Then fill in your real Strava credentials:
+
+- `auth-bridge/.env`
+- `extension/.env.local`
+
+Your Strava app callback URL must be:
+
+```text
+http://127.0.0.1:8787/auth/strava/callback
+```
+
+## Run Dev
+
+Start everything from the repo root with one command:
+
+```bash
+corepack pnpm dev
+```
+
+What this does:
+
+- verifies the required env files exist
+- installs dependencies if they are missing
+- starts the local OAuth auth bridge
+- starts the extension build watcher
+- waits for `extension/dist` to be ready
+
+The command keeps both processes running until you press `Ctrl+C`.
 
 ## Load The Extension
 
@@ -56,12 +84,14 @@ The Strava app callback domain must allow `127.0.0.1`.
 5. Open `https://www.strava.com/dashboard`
 6. Use the injected Connect with Strava button
 
-## Development
+If the extension is already loaded and you rebuild, click the Reload button on the extension card in Chrome.
+
+## Manual Commands
 
 ```bash
-pnpm --filter extension build --watch
-pnpm --filter auth-bridge dev
-pnpm test
+corepack pnpm --filter auth-bridge dev
+corepack pnpm --filter extension build --watch
+corepack pnpm test
 ```
 
 ## Architecture
