@@ -29,16 +29,22 @@ function Panel({
   className,
   children,
   floating,
+  fullscreen,
 }: {
   className?: string;
   children: ReactNode;
   floating?: boolean;
+  fullscreen?: boolean;
 }) {
   return (
     <div
       className={clsx(
         'se-enter overflow-hidden rounded-[28px] border border-white/70 bg-white/90 text-slate-900 shadow-widget backdrop-blur-xl',
-        floating ? 'w-[360px] max-w-[calc(100vw-24px)]' : 'w-full',
+        fullscreen
+          ? 'fixed inset-3 z-[2147483647] w-auto max-w-none'
+          : floating
+            ? 'w-[360px] max-w-[calc(100vw-24px)]'
+            : 'w-full',
         className,
       )}
     >
@@ -174,15 +180,20 @@ export function DashboardWidget({
   onWindowChange,
   onDisconnect,
   floating,
+  fullscreen,
+  onToggleFullscreen,
 }: {
   data: DashboardAnalytics;
   windowDays: 7 | 30 | 90;
   onWindowChange: (windowDays: 7 | 30 | 90) => void;
   onDisconnect: () => void;
   floating?: boolean;
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }) {
   return (
-    <Panel floating={floating}>
+    <Panel floating={floating} fullscreen={fullscreen}>
+      <div className="flex h-full max-h-[calc(100vh-24px)] flex-col">
       <div className="bg-[radial-gradient(circle_at_top_left,_rgba(252,82,0,0.26),_transparent_42%),linear-gradient(135deg,_#ffffff,_#f8fafc)] px-6 py-5">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -192,13 +203,24 @@ export function DashboardWidget({
             </h2>
             <p className="mt-1 text-sm text-slate-500">Live Strava analytics with sampled recent activity insights.</p>
           </div>
-          <button
-            className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-            onClick={onDisconnect}
-            type="button"
-          >
-            Disconnect
-          </button>
+          <div className="flex items-center gap-2">
+            {floating && onToggleFullscreen ? (
+              <button
+                className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+                onClick={onToggleFullscreen}
+                type="button"
+              >
+                {fullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              </button>
+            ) : null}
+            <button
+              className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+              onClick={onDisconnect}
+              type="button"
+            >
+              Disconnect
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 flex gap-2">
@@ -220,7 +242,8 @@ export function DashboardWidget({
         </div>
       </div>
 
-      <div className="space-y-6 px-6 py-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6">
+      <div className="space-y-6">
         <div className="grid grid-cols-2 gap-3">
           <MetricCard label="Distance" value={formatDistance(data.recentTotals.distance)} />
           <MetricCard label="Moving Time" value={formatDuration(data.recentTotals.movingTime)} />
@@ -325,6 +348,43 @@ export function DashboardWidget({
             </div>
 
             <div className="rounded-3xl border border-slate-200 p-4">
+              <SectionTitle subtitle="Community" title="Top Fans" />
+              {data.topKudoers.length > 0 ? (
+                <div className="space-y-3">
+                  {data.topKudoers.map((person, index) => (
+                    <div key={person.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={person.name} src={person.avatarUrl} />
+                        <div>
+                          <p className="font-semibold text-slate-900">{person.name}</p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              #{index + 1}
+                            </span>
+                            {person.badges.map((badge) => (
+                              <span
+                                key={badge}
+                                className="rounded-full bg-lava-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-lava-600"
+                              >
+                                {badge}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-semibold text-slate-900">{person.count}</p>
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">kudos</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-slate-500">No recent kudoers available in the dashboard sample yet.</p>
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 p-4">
               <SectionTitle subtitle="Insights" title="Patterns" />
               <div className="space-y-3 text-sm leading-6 text-slate-600">
                 {data.insights.map((insight) => (
@@ -357,6 +417,8 @@ export function DashboardWidget({
             ))}
           </div>
         </div>
+      </div>
+      </div>
       </div>
     </Panel>
   );

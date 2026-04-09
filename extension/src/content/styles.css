@@ -4,6 +4,9 @@
 
 :host {
   all: initial;
+  display: block;
+  font: inherit;
+  color: inherit;
 }
 
 * {
@@ -28,7 +31,7 @@
 
 button {
   cursor: pointer;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font: inherit;
 }
 
 img {

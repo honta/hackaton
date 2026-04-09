@@ -319,6 +319,7 @@ export function buildDashboardAnalytics({
   stats,
   activities,
   streams,
+  kudosEntries = [],
   windowDays,
   now = Date.now(),
 }: {
@@ -326,12 +327,14 @@ export function buildDashboardAnalytics({
   stats: StravaStats;
   activities: StravaActivity[];
   streams: ActivityStream[];
+  kudosEntries?: Array<{ activityId: number; kudoers: StravaKudoer[] }>;
   windowDays: TimeWindow;
   now?: number;
 }): DashboardAnalytics {
   const windowed = activities.filter((activity) => isWithinWindow(activity, windowDays, now));
   const allTime = extractTotals(stats, 'all_');
   const heatmap = buildHeatmap(streams);
+  const topKudoers = buildKudosAnalytics(kudosEntries).people.slice(0, 3);
 
   return {
     athlete,
@@ -353,6 +356,7 @@ export function buildDashboardAnalytics({
     monthlyChart: bucketMonthly(activities, 6, now),
     funFacts: createFunFacts(windowed, stats),
     insights: createInsights(windowed),
+    topKudoers,
     achievements: createAchievements(
       {
         distance: allTime.distance,

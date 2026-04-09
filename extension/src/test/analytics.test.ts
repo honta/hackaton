@@ -73,6 +73,22 @@ describe('analytics builders', () => {
       stats,
       activities,
       streams: [{ id: 1, latlng: [[40, -73], [40.2, -73.2]] }],
+      kudosEntries: [
+        {
+          activityId: 1,
+          kudoers: [
+            { id: 1, firstname: 'Sam', lastname: 'Hill' },
+            { id: 2, firstname: 'Pat', lastname: 'Lee' },
+          ],
+        },
+        {
+          activityId: 2,
+          kudoers: [
+            { id: 1, firstname: 'Sam', lastname: 'Hill' },
+            { id: 3, firstname: 'Alex', lastname: 'Stone' },
+          ],
+        },
+      ],
       windowDays: 30,
       now: new Date('2026-04-08T18:00:00Z').getTime(),
     });
@@ -81,6 +97,8 @@ describe('analytics builders', () => {
     expect(dashboard.allTimeTotals.distance).toBe(620_000);
     expect(dashboard.heatmap.sampleCount).toBe(1);
     expect(dashboard.funFacts[0]).toContain('Longest recent activity');
+    expect(dashboard.topKudoers).toHaveLength(3);
+    expect(dashboard.topKudoers[0].name).toBe('Sam Hill');
   });
 
   it('aggregates recent kudoers into a leaderboard', () => {

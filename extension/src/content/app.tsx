@@ -159,6 +159,20 @@ function DashboardContent({ onDisconnect, floating }: { onDisconnect: () => void
   const [data, setData] = useState<DashboardAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!floating || !fullscreen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [floating, fullscreen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,7 +218,9 @@ function DashboardContent({ onDisconnect, floating }: { onDisconnect: () => void
     <DashboardWidget
       data={data}
       floating={floating}
+      fullscreen={fullscreen}
       onDisconnect={onDisconnect}
+      onToggleFullscreen={() => setFullscreen((value) => !value)}
       onWindowChange={(nextWindow) => setWindowDays(nextWindow)}
       windowDays={windowDays}
     />

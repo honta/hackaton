@@ -16,6 +16,7 @@ const service: BackgroundService = {
     monthlyChart: [],
     funFacts: [],
     insights: [],
+    topKudoers: [],
     achievements: [],
     heatmap: { width: 320, height: 220, sampleCount: 0, paths: [] },
     lastUpdated: new Date().toISOString(),

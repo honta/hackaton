@@ -117,6 +117,14 @@ export interface AuthStartPayload {
   authUrl: string;
 }
 
+export interface KudosPerson {
+  id: number;
+  name: string;
+  avatarUrl: string;
+  count: number;
+  badges: string[];
+}
+
 export interface DashboardAnalytics {
   athlete: StravaAthlete;
   windowDays: TimeWindow;
@@ -145,6 +153,7 @@ export interface DashboardAnalytics {
   }>;
   funFacts: string[];
   insights: string[];
+  topKudoers: KudosPerson[];
   achievements: Array<{
     title: string;
     description: string;
@@ -167,13 +176,7 @@ export interface HeatmapOverlay {
 export interface KudosAnalytics {
   sampleSize: number;
   totalKudos: number;
-  people: Array<{
-    id: number;
-    name: string;
-    avatarUrl: string;
-    count: number;
-    badges: string[];
-  }>;
+  people: KudosPerson[];
 }
 
 export interface SegmentInsights {

@@ -203,36 +203,54 @@ export function createBackgroundService({
         return stravaFetch<StravaActivity[]>(`/athlete/activities?after=${after}&per_page=60`, context);
       }),
     ]);
+    const kudosCandidates = activities.slice(0, 20);
     const streamCandidates = activities.filter((activity) => (activity.start_latlng?.length ?? 0) > 0).slice(0, 12);
-    const streamResults = await Promise.allSettled(
-      streamCandidates.map((activity) =>
-        cached(`stream:${activity.id}`, 60 * 60 * 1000, async () => {
-          const streamSet = await stravaFetch<{ latlng?: { data: number[][] } }>(
-            `/activities/${activity.id}/streams?keys=latlng&key_by_type=true`,
-            context,
-          );
+    const [streamResults, kudosResults] = await Promise.all([
+      Promise.allSettled(
+        streamCandidates.map((activity) =>
+          cached(`stream:${activity.id}`, 60 * 60 * 1000, async () => {
+            const streamSet = await stravaFetch<{ latlng?: { data: number[][] } }>(
+              `/activities/${activity.id}/streams?keys=latlng&key_by_type=true`,
+              context,
+            );
 
-          if (!streamSet.latlng?.data?.length) {
-            return null;
-          }
+            if (!streamSet.latlng?.data?.length) {
+              return null;
+            }
 
-          return {
-            id: activity.id,
-            latlng: streamSet.latlng.data,
-          };
-        }),
+            return {
+              id: activity.id,
+              latlng: streamSet.latlng.data,
+            };
+          }),
+        ),
       ),
-    );
+      Promise.allSettled(
+        kudosCandidates.map(async (activity) => ({
+          activityId: activity.id,
+          kudoers: await cached(`activity-kudos:${activity.id}`, 60 * 60 * 1000, () =>
+            stravaFetch<StravaKudoer[]>(`/activities/${activity.id}/kudos?page=1&per_page=30`, context),
+          ),
+        })),
+      ),
+    ]);
     const streams = streamResults
       .filter((result): result is PromiseFulfilledResult<ActivityStream | null> => result.status === 'fulfilled')
       .map((result) => result.value)
       .filter((value): value is ActivityStream => value !== null);
+    const kudosEntries = kudosResults
+      .filter(
+        (result): result is PromiseFulfilledResult<{ activityId: number; kudoers: StravaKudoer[] }> =>
+          result.status === 'fulfilled',
+      )
+      .map((result) => result.value);
 
     return buildDashboardAnalytics({
       athlete,
       stats,
       activities,
       streams,
+      kudosEntries,
       windowDays,
       now: now(),
     });
