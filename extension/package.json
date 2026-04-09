@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite build --watch",
+    "build": "vite build --config vite.background.config.ts && vite build --config vite.content.config.ts",
+    "dev": "sh -c 'vite build --config vite.background.config.ts --watch & vite build --config vite.content.config.ts --watch & wait'",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -58,10 +58,20 @@ async function parseJson<T>(response: Response): Promise<T> {
 export function createBackgroundService({
   fetchImpl = fetch,
   now = Date.now,
-  executeScriptImpl = chrome.scripting.executeScript,
+  executeScriptImpl,
 }: CreateServiceDeps = {}): BackgroundService {
+  const pageExecuteScript =
+    executeScriptImpl ?? globalThis.chrome?.scripting?.executeScript?.bind(globalThis.chrome.scripting);
+
   async function executePageRequest(tabId: number, path: string, init?: RequestInit): Promise<PageResponse> {
-    const [result] = await executeScriptImpl({
+    if (!pageExecuteScript) {
+      throw new RpcServiceError(
+        'API_ERROR',
+        'Unable to access the current Strava tab. Reload the page and try again.',
+      );
+    }
+
+    const [result] = await pageExecuteScript({
       target: { tabId },
       world: 'MAIN',
       args: [path, init ?? {}],
@@ -199,65 +209,6 @@ export function createBackgroundService({
     const value = await producer();
     await setCached(key, value, ttlMs);
     return value;
-  }
-
-  async function getAthlete(): Promise<StravaAthlete> {
-    return cached('athlete', 15 * 60 * 1000, () => stravaFetch<StravaAthlete>('/athlete'));
-  }
-
-  async function getAthleteStats(athleteId: number): Promise<StravaStats> {
-    return cached(`athlete-stats:${athleteId}`, 15 * 60 * 1000, () =>
-      stravaFetch<StravaStats>(`/athletes/${athleteId}/stats`),
-    );
-  }
-
-  async function getRecentActivities(days = 90, perPage = 60): Promise<StravaActivity[]> {
-    const after = Math.floor((now() - days * 24 * 60 * 60 * 1000) / 1000);
-    return cached(`activities:${days}:${perPage}`, 10 * 60 * 1000, () =>
-      stravaFetch<StravaActivity[]>(`/athlete/activities?after=${after}&per_page=${perPage}`),
-    );
-  }
-
-  async function getDetailedActivity(activityId: number): Promise<StravaActivity> {
-    return cached(`activity-detail:${activityId}`, 20 * 60 * 1000, () =>
-      stravaFetch<StravaActivity>(`/activities/${activityId}?include_all_efforts=true`),
-    );
-  }
-
-  async function getRecentDetailedActivities(limit = 20): Promise<StravaActivity[]> {
-    const activities = await getRecentActivities(90, Math.max(limit, 30));
-    const selected = activities.slice(0, limit);
-    const results = await Promise.allSettled(selected.map((activity) => getDetailedActivity(activity.id)));
-    return results
-      .filter((result): result is PromiseFulfilledResult<StravaActivity> => result.status === 'fulfilled')
-      .map((result) => result.value);
-  }
-
-  async function getActivityKudoers(activityId: number): Promise<StravaKudoer[]> {
-    return cached(`activity-kudos:${activityId}`, 60 * 60 * 1000, () =>
-      stravaFetch<StravaKudoer[]>(`/activities/${activityId}/kudos?page=1&per_page=30`),
-    );
-  }
-
-  async function getSegment(segmentId: number): Promise<StravaSegment> {
-    return cached(`segment:${segmentId}`, 30 * 60 * 1000, () => stravaFetch<StravaSegment>(`/segments/${segmentId}`));
-  }
-
-  async function getActivityLatLngStream(activityId: number): Promise<ActivityStream | null> {
-    return cached(`stream:${activityId}`, 60 * 60 * 1000, async () => {
-      const streamSet = await stravaFetch<{ latlng?: { data: number[][] } }>(
-        `/activities/${activityId}/streams?keys=latlng&key_by_type=true`,
-      );
-
-      if (!streamSet.latlng?.data?.length) {
-        return null;
-      }
-
-      return {
-        id: activityId,
-        latlng: streamSet.latlng.data,
-      };
-    });
   }
 
   async function loadDashboard(context?: RequestContext, windowDays: TimeWindow = 30): Promise<DashboardAnalytics> {
