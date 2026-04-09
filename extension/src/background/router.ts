@@ -1,4 +1,5 @@
 import type {
+  AuthStartPayload,
   AuthStatus,
   DashboardAnalytics,
   HeatmapOverlay,
@@ -16,6 +17,8 @@ export interface RequestContext {
 
 export interface BackgroundService {
   getAuthStatus(context?: RequestContext): Promise<AuthStatus>;
+  startAuth(returnTo: string): Promise<AuthStartPayload>;
+  consumeSession(sessionId: string): Promise<AuthStatus>;
   login(context?: RequestContext): Promise<AuthStatus>;
   logout(context?: RequestContext): Promise<AuthStatus>;
   getDashboard(context?: RequestContext, windowDays?: 7 | 30 | 90): Promise<DashboardAnalytics>;
@@ -62,6 +65,10 @@ export function createMessageRouter(service: BackgroundService) {
       switch (message.type) {
         case 'auth:status':
           return { ok: true, data: await service.getAuthStatus(context) };
+        case 'auth:start':
+          return { ok: true, data: await service.startAuth(message.returnTo) };
+        case 'auth:consume':
+          return { ok: true, data: await service.consumeSession(message.sessionId) };
         case 'auth:login':
           return { ok: true, data: await service.login(context) };
         case 'auth:logout':

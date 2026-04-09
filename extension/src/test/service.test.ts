@@ -41,13 +41,41 @@ describe('background service session auth', () => {
     vi.unstubAllGlobals();
   });
 
-  it('logs in through the current browser session and stores the athlete', async () => {
+  it('builds an OAuth start URL when the auth bridge is healthy', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, now: 1000 }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const service = createBackgroundService({ fetchImpl });
+    const result = await service.startAuth('https://www.strava.com/dashboard');
+
+    expect(result.authUrl).toContain('http://127.0.0.1:8787/auth/strava/start');
+    expect(result.authUrl).toContain(encodeURIComponent('https://www.strava.com/dashboard'));
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8787/health',
+      expect.objectContaining({ headers: expect.objectContaining({ Accept: 'application/json' }) }),
+    );
+  });
+
+  it('consumes an OAuth bridge session and stores the athlete', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
-          id: 42,
-          firstname: 'Taylor',
-          lastname: 'Swift',
+          athlete: {
+            id: 42,
+            firstname: 'Taylor',
+            lastname: 'Swift',
+          },
+          accessToken: 'access-token',
+          refreshToken: 'refresh-token',
+          expiresAt: 2_000_000,
+          scope: 'read,activity:read_all',
         }),
         {
           status: 200,
@@ -57,28 +85,20 @@ describe('background service session auth', () => {
     );
 
     const service = createBackgroundService({ fetchImpl, now: () => 1000 });
-    const authStatus = await service.login();
+    const authStatus = await service.consumeSession('session-123');
 
     expect(authStatus.authenticated).toBe(true);
-    expect(authStatus.mode).toBe('browser-session');
+    expect(authStatus.mode).toBe('oauth-bridge');
     expect(fetchImpl).toHaveBeenCalledWith(
-      'https://www.strava.com/api/v3/athlete',
+      'http://127.0.0.1:8787/auth/strava/session/consume',
       expect.objectContaining({
-        cache: 'no-store',
-        credentials: 'include',
+        method: 'POST',
+        body: JSON.stringify({ sessionId: 'session-123' }),
       }),
     );
 
     const statusAfterLogin = await service.getAuthStatus();
     expect(statusAfterLogin.authenticated).toBe(true);
     expect(statusAfterLogin.athlete?.id).toBe(42);
-  });
-
-  it('clears local state when the browser session is unavailable', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('Unauthorized', { status: 401 }));
-    const service = createBackgroundService({ fetchImpl });
-
-    await expect(service.login()).rejects.toThrow('Use current Strava session');
-    expect((await service.getAuthStatus()).authenticated).toBe(false);
   });
 });

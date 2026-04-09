@@ -2,6 +2,8 @@ import { createMessageRouter, RpcServiceError, type BackgroundService } from '@/
 
 const service: BackgroundService = {
   getAuthStatus: vi.fn(async () => ({ authenticated: false })),
+  startAuth: vi.fn(async () => ({ authUrl: 'http://127.0.0.1:8787/auth/strava/start?return_to=test' })),
+  consumeSession: vi.fn(async () => ({ authenticated: true, mode: 'oauth-bridge' as const })),
   login: vi.fn(async () => ({ authenticated: true })),
   logout: vi.fn(async () => ({ authenticated: false })),
   getDashboard: vi.fn(async () => ({

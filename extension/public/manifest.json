@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "description": "Adds premium analytics overlays to the Strava web experience.",
   "permissions": [
-    "storage",
-    "scripting"
+    "storage"
   ],
   "host_permissions": [
     "https://www.strava.com/*",
-    "https://www.strava.com/api/*"
+    "https://www.strava.com/api/*",
+    "http://127.0.0.1:8787/*"
   ],
   "background": {
     "service_worker": "assets/background.js",
