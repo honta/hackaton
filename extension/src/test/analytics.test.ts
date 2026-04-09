@@ -1,4 +1,4 @@
-import { buildDashboardAnalytics, buildKudosAnalytics, buildSegmentInsights, computeStreak } from '@/shared/analytics';
+import { buildDashboardAnalytics, buildHeatmap, buildKudosAnalytics, buildSegmentInsights, computeStreak } from '@/shared/analytics';
 import type { StravaActivity, StravaSegment, StravaStats } from '@/shared/types';
 
 const activities: StravaActivity[] = [
@@ -121,5 +121,13 @@ describe('analytics builders', () => {
     expect(insights.attempts).toBe(1);
     expect(insights.bestTimeSeconds).toBe(320);
     expect(insights.prCount).toBe(1);
+  });
+
+  it('builds a heatmap without blowing the stack on large stream samples', () => {
+    const latlng = Array.from({ length: 50_000 }, (_, index) => [40 + index * 0.00001, -73 - index * 0.00001]);
+    const heatmap = buildHeatmap([{ id: 1, latlng }]);
+
+    expect(heatmap.sampleCount).toBe(1);
+    expect(heatmap.paths).toHaveLength(1);
   });
 });

@@ -97,17 +97,24 @@ export interface ActivityStream {
 }
 
 export interface StoredAuthSession {
-  mode: 'browser-session';
+  mode: 'oauth-bridge';
   athlete: StravaAthlete;
-  lastValidatedAt: number;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  scope?: string;
 }
 
 export interface AuthStatus {
   authenticated: boolean;
   athlete?: StravaAthlete;
-  mode?: 'browser-session';
+  mode?: 'oauth-bridge';
   expiresAt?: number;
   scope?: string;
+}
+
+export interface AuthStartPayload {
+  authUrl: string;
 }
 
 export interface DashboardAnalytics {
@@ -208,6 +215,8 @@ export type RpcResponse<T> = RpcSuccess<T> | RpcFailure;
 
 export type RpcRequest =
   | { type: 'auth:status' }
+  | { type: 'auth:start'; returnTo: string }
+  | { type: 'auth:consume'; sessionId: string }
   | { type: 'auth:login' }
   | { type: 'auth:logout' }
   | { type: 'stats:getDashboard'; windowDays?: TimeWindow }

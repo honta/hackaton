@@ -205,12 +205,18 @@ export function buildHeatmap(streams: ActivityStream[]): HeatmapOverlay {
     };
   }
 
-  const lats = flattened.map(([lat]) => lat);
-  const lngs = flattened.map(([, lng]) => lng);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  let minLng = Number.POSITIVE_INFINITY;
+  let maxLng = Number.NEGATIVE_INFINITY;
+
+  for (const [lat, lng] of flattened) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+
   const latSpan = Math.max(maxLat - minLat, 0.0001);
   const lngSpan = Math.max(maxLng - minLng, 0.0001);
 

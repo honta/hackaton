@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AuthPrompt, DashboardWidget, ErrorPanel, KudosWidget, LoadingPanel, SegmentWidget } from '@/components/widgets';
 import { createLogger } from '@/shared/logger';
 import type {
+  AuthStartPayload,
   AuthStatus,
   DashboardAnalytics,
   KudosAnalytics,
@@ -38,16 +39,48 @@ function pageLabel(page: PageContext): string {
   }
 }
 
+function getReturnToUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('session');
+  return url.toString();
+}
+
 export function ContentApp({ page, floating }: { page: PageContext; floating?: boolean }) {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    const sessionId = url.searchParams.get('session');
+
+    if (sessionId) {
+      setAuthBusy(true);
+      void sendMessage<AuthStatus>({ type: 'auth:consume', sessionId }).then((response) => {
+        setAuthBusy(false);
+        url.searchParams.delete('session');
+        window.history.replaceState({}, '', url.toString());
+
+        if (response.ok) {
+          logger.info('Consumed OAuth bridge session', response.data);
+          setAuthStatus(response.data);
+        } else {
+          logger.warn('Failed to consume OAuth bridge session', response.error);
+          setAuthError(response.error.message);
+          setAuthStatus({ authenticated: false });
+        }
+      });
+      return;
+    }
+
     void sendMessage<AuthStatus>({ type: 'auth:status' }).then((response) => {
       if (response.ok) {
         logger.info('Loaded auth status', response.data);
         setAuthStatus(response.data);
+      } else {
+        logger.warn('Failed to load auth status', response.error);
+        setAuthError(response.error.message);
+        setAuthStatus({ authenticated: false });
       }
     });
   }, []);
@@ -56,12 +89,12 @@ export function ContentApp({ page, floating }: { page: PageContext; floating?: b
     setAuthError(null);
     logger.info('Connect button clicked');
     setAuthBusy(true);
-    const response = await sendMessage<AuthStatus>({ type: 'auth:login' });
+    const response = await sendMessage<AuthStartPayload>({ type: 'auth:start', returnTo: getReturnToUrl() });
     setAuthBusy(false);
 
     if (response.ok) {
-      logger.info('Connect succeeded', response.data);
-      setAuthStatus(response.data);
+      logger.info('Redirecting to OAuth bridge', response.data);
+      window.location.assign(response.data.authUrl);
     } else {
       logger.warn('Connect failed', response.error);
       setAuthError(response.error.message);

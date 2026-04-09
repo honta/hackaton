@@ -6,39 +6,41 @@ import {
 } from '@/shared/analytics';
 import type {
   ActivityStream,
+  AuthStartPayload,
   AuthStatus,
   DashboardAnalytics,
   HeatmapOverlay,
   InsightsPayload,
   KudosAnalytics,
+  SegmentInsights,
   StoredAuthSession,
   StravaActivity,
-  StravaAthlete,
   StravaKudoer,
   StravaSegment,
   StravaStats,
+  StravaAthlete,
   TimeWindow,
-  SegmentInsights,
 } from '@/shared/types';
 import { createLogger } from '@/shared/logger';
 import { clearCache, clearStoredAuth, getCached, getStoredAuth, setCached, setStoredAuth } from './storage';
 import { RpcServiceError, type BackgroundService, type RequestContext } from './router';
 
 const STRAVA_API_BASE = 'https://www.strava.com/api/v3';
-const SESSION_REVALIDATE_MS = 5 * 60 * 1000;
+const AUTH_BRIDGE_BASE = 'http://127.0.0.1:8787';
+const TOKEN_REFRESH_SKEW_MS = 60 * 1000;
 const logger = createLogger('background');
 
 interface CreateServiceDeps {
   fetchImpl?: typeof fetch;
   now?: () => number;
-  executeScriptImpl?: typeof chrome.scripting.executeScript;
 }
 
-interface PageResponse {
-  ok: boolean;
-  status: number;
-  retryAfter: string | null;
-  bodyText: string;
+interface BridgeSessionResponse {
+  athlete: StravaAthlete;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  scope?: string;
 }
 
 function parseRateLimit(response: Response) {
@@ -55,52 +57,114 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function getBridgeAuthError(path: string, status: number): RpcServiceError {
+  return new RpcServiceError(
+    'AUTH_REQUIRED',
+    [
+      `Strava returned ${status} for ${path}.`,
+      'Reconnect through the local OAuth bridge.',
+    ].join(' '),
+  );
+}
+
 export function createBackgroundService({
   fetchImpl = fetch,
   now = Date.now,
-  executeScriptImpl = chrome.scripting.executeScript,
 }: CreateServiceDeps = {}): BackgroundService {
-  async function executePageRequest(tabId: number, path: string, init?: RequestInit): Promise<PageResponse> {
-    const [result] = await executeScriptImpl({
-      target: { tabId },
-      world: 'MAIN',
-      args: [path, init ?? {}],
-      func: async (requestPath: string, requestInit: RequestInit) => {
-        const response = await fetch(`https://www.strava.com/api/v3${requestPath}`, {
-          ...requestInit,
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            ...(requestInit.headers ?? {}),
-          },
-        });
-
-        return {
-          ok: response.ok,
-          status: response.status,
-          retryAfter: response.headers.get('retry-after'),
-          bodyText: await response.text(),
-        };
-      },
-    });
-
-    return result.result as PageResponse;
-  }
-
-  async function parsePageResponse<T>(pageResponse: PageResponse, path: string): Promise<T> {
-    if (pageResponse.status === 401 || pageResponse.status === 403) {
-      logger.warn('Strava session unavailable', { path, status: pageResponse.status });
-      await clearStoredAuth();
+  async function bridgeFetch<T>(path: string, init?: RequestInit): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetchImpl(`${AUTH_BRIDGE_BASE}${path}`, {
+        ...init,
+        headers: {
+          Accept: 'application/json',
+          ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(init?.headers ?? {}),
+        },
+      });
+    } catch (error) {
+      logger.warn('Auth bridge is unavailable', error);
       throw new RpcServiceError(
-        'AUTH_REQUIRED',
-        'Open Strava in this browser, sign in on strava.com, then click "Use current Strava session".',
+        'AUTH_FAILED',
+        'Auth bridge is not reachable. Start auth-bridge locally and try again.',
       );
     }
 
-    if (pageResponse.status === 429) {
-      const retryAfter = Number(pageResponse.retryAfter ?? '60');
-      const retryAt = Date.now() + retryAfter * 1000;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new RpcServiceError(
+        'AUTH_FAILED',
+        `Auth bridge request failed (${response.status}). ${text || 'Check auth-bridge logs and configuration.'}`,
+      );
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  async function hydrateStoredAuth(payload: BridgeSessionResponse): Promise<StoredAuthSession> {
+    const auth: StoredAuthSession = {
+      mode: 'oauth-bridge',
+      athlete: payload.athlete,
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      expiresAt: payload.expiresAt,
+      scope: payload.scope ?? '',
+    };
+    await setStoredAuth(auth);
+    return auth;
+  }
+
+  async function refreshAuth(auth: StoredAuthSession): Promise<StoredAuthSession> {
+    logger.info('Refreshing Strava OAuth token', { athleteId: auth.athlete.id });
+    const refreshed = await bridgeFetch<BridgeSessionResponse>('/auth/strava/token/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken: auth.refreshToken }),
+    });
+    return hydrateStoredAuth(refreshed);
+  }
+
+  async function getAuth(_context?: RequestContext): Promise<StoredAuthSession> {
+    const auth = await getStoredAuth();
+
+    if (!auth) {
+      logger.info('No stored OAuth session found');
+      throw new RpcServiceError(
+        'AUTH_REQUIRED',
+        'Connect Strava through the local OAuth bridge to unlock analytics.',
+      );
+    }
+
+    if (auth.expiresAt <= now() + TOKEN_REFRESH_SKEW_MS) {
+      return refreshAuth(auth);
+    }
+
+    return auth;
+  }
+
+  async function stravaFetch<T>(path: string, context?: RequestContext, init?: RequestInit): Promise<T> {
+    logger.debug('Requesting Strava API', { path, method: init?.method ?? 'GET', tabId: context?.tabId });
+    const auth = await getAuth(context);
+    const response = await fetchImpl(`${STRAVA_API_BASE}${path}`, {
+      ...init,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${auth.accessToken}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      logger.warn('Stored OAuth token rejected by Strava', { path, status: response.status });
+      await clearStoredAuth();
+      throw getBridgeAuthError(path, response.status);
+    }
+
+    if (response.status === 429) {
+      const retryAt = parseRateLimit(response);
       logger.warn('Strava rate limit reached', { path, retryAt });
       throw new RpcServiceError(
         'RATE_LIMIT',
@@ -109,82 +173,8 @@ export function createBackgroundService({
       );
     }
 
-    if (!pageResponse.ok) {
-      throw new RpcServiceError('API_ERROR', `Strava request failed (${pageResponse.status}): ${pageResponse.bodyText}`);
-    }
-
-    return JSON.parse(pageResponse.bodyText) as T;
-  }
-
-  async function stravaFetch<T>(path: string, context?: RequestContext, init?: RequestInit): Promise<T> {
-    logger.debug('Requesting Strava API', { path, method: init?.method ?? 'GET', tabId: context?.tabId });
-
-    if (context?.tabId) {
-      const pageResponse = await executePageRequest(context.tabId, path, init);
-      logger.debug('Strava API page-context response ok', { path, status: pageResponse.status });
-      return parsePageResponse<T>(pageResponse, path);
-    }
-
-    const response = await fetchImpl(`${STRAVA_API_BASE}${path}`, {
-      ...init,
-      credentials: 'include',
-      headers: {
-        Accept: 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-        ...(init?.headers ?? {}),
-      },
-    });
-
-    if (response.status === 401 || response.status === 403) {
-      logger.warn('Strava session unavailable', { path, status: response.status });
-      await clearStoredAuth();
-      throw new RpcServiceError(
-        'AUTH_REQUIRED',
-        'Open Strava in this browser, sign in, then click "Use current Strava session".',
-      );
-    }
-
-    if (response.status === 429) {
-      logger.warn('Strava rate limit reached', { path, retryAt: parseRateLimit(response) });
-      throw new RpcServiceError(
-        'RATE_LIMIT',
-        'Strava rate limit reached. Wait a minute and try again.',
-        parseRateLimit(response),
-      );
-    }
-
     logger.debug('Strava API response ok', { path, status: response.status });
     return parseJson<T>(response);
-  }
-
-  async function probeSession(context?: RequestContext): Promise<StravaAthlete> {
-    return stravaFetch<StravaAthlete>('/athlete', context, { cache: 'no-store' });
-  }
-
-  async function getAuth(context?: RequestContext): Promise<StoredAuthSession> {
-    const auth = await getStoredAuth();
-
-    if (!auth) {
-      logger.info('No stored browser session found');
-      throw new RpcServiceError(
-        'AUTH_REQUIRED',
-        'Use your current Strava browser session to unlock analytics.',
-      );
-    }
-
-    if (auth.lastValidatedAt + SESSION_REVALIDATE_MS <= now()) {
-      logger.info('Revalidating stored browser session');
-      const athlete = await probeSession(context);
-      const refreshedAuth: StoredAuthSession = {
-        mode: 'browser-session',
-        athlete,
-        lastValidatedAt: now(),
-      };
-      await setStoredAuth(refreshedAuth);
-      return refreshedAuth;
-    }
-
-    return auth;
   }
 
   async function cached<T>(key: string, ttlMs: number, producer: () => Promise<T>): Promise<T> {
@@ -201,71 +191,14 @@ export function createBackgroundService({
     return value;
   }
 
-  async function getAthlete(): Promise<StravaAthlete> {
-    return cached('athlete', 15 * 60 * 1000, () => stravaFetch<StravaAthlete>('/athlete'));
-  }
-
-  async function getAthleteStats(athleteId: number): Promise<StravaStats> {
-    return cached(`athlete-stats:${athleteId}`, 15 * 60 * 1000, () =>
-      stravaFetch<StravaStats>(`/athletes/${athleteId}/stats`),
-    );
-  }
-
-  async function getRecentActivities(days = 90, perPage = 60): Promise<StravaActivity[]> {
-    const after = Math.floor((now() - days * 24 * 60 * 60 * 1000) / 1000);
-    return cached(`activities:${days}:${perPage}`, 10 * 60 * 1000, () =>
-      stravaFetch<StravaActivity[]>(`/athlete/activities?after=${after}&per_page=${perPage}`),
-    );
-  }
-
-  async function getDetailedActivity(activityId: number): Promise<StravaActivity> {
-    return cached(`activity-detail:${activityId}`, 20 * 60 * 1000, () =>
-      stravaFetch<StravaActivity>(`/activities/${activityId}?include_all_efforts=true`),
-    );
-  }
-
-  async function getRecentDetailedActivities(limit = 20): Promise<StravaActivity[]> {
-    const activities = await getRecentActivities(90, Math.max(limit, 30));
-    const selected = activities.slice(0, limit);
-    const results = await Promise.allSettled(selected.map((activity) => getDetailedActivity(activity.id)));
-    return results
-      .filter((result): result is PromiseFulfilledResult<StravaActivity> => result.status === 'fulfilled')
-      .map((result) => result.value);
-  }
-
-  async function getActivityKudoers(activityId: number): Promise<StravaKudoer[]> {
-    return cached(`activity-kudos:${activityId}`, 60 * 60 * 1000, () =>
-      stravaFetch<StravaKudoer[]>(`/activities/${activityId}/kudos?page=1&per_page=30`),
-    );
-  }
-
-  async function getSegment(segmentId: number): Promise<StravaSegment> {
-    return cached(`segment:${segmentId}`, 30 * 60 * 1000, () => stravaFetch<StravaSegment>(`/segments/${segmentId}`));
-  }
-
-  async function getActivityLatLngStream(activityId: number): Promise<ActivityStream | null> {
-    return cached(`stream:${activityId}`, 60 * 60 * 1000, async () => {
-      const streamSet = await stravaFetch<{ latlng?: { data: number[][] } }>(
-        `/activities/${activityId}/streams?keys=latlng&key_by_type=true`,
-      );
-
-      if (!streamSet.latlng?.data?.length) {
-        return null;
-      }
-
-      return {
-        id: activityId,
-        latlng: streamSet.latlng.data,
-      };
-    });
-  }
-
   async function loadDashboard(context?: RequestContext, windowDays: TimeWindow = 30): Promise<DashboardAnalytics> {
     logger.info('Loading dashboard analytics', { windowDays });
     const athlete = await cached('athlete', 15 * 60 * 1000, () => stravaFetch<StravaAthlete>('/athlete', context));
     const [stats, activities] = await Promise.all([
-      cached(`athlete-stats:${athlete.id}`, 15 * 60 * 1000, () => stravaFetch<StravaStats>(`/athletes/${athlete.id}/stats`, context)),
-      cached(`activities:90:60`, 10 * 60 * 1000, () => {
+      cached(`athlete-stats:${athlete.id}`, 15 * 60 * 1000, () =>
+        stravaFetch<StravaStats>(`/athletes/${athlete.id}/stats`, context),
+      ),
+      cached('activities:90:60', 10 * 60 * 1000, () => {
         const after = Math.floor((now() - 90 * 24 * 60 * 60 * 1000) / 1000);
         return stravaFetch<StravaActivity[]>(`/athlete/activities?after=${after}&per_page=60`, context);
       }),
@@ -307,52 +240,73 @@ export function createBackgroundService({
 
   return {
     async getAuthStatus(context?: RequestContext): Promise<AuthStatus> {
-      const auth = await getStoredAuth();
-
-      if (!auth) {
-        logger.info('Auth status requested: not authenticated');
-        return { authenticated: false };
-      }
-
       try {
-        const ensured = auth.lastValidatedAt + SESSION_REVALIDATE_MS <= now()
-          ? await getAuth(context)
-          : auth;
-
-        logger.info('Auth status requested: authenticated', { athleteId: ensured.athlete.id });
+        const auth = await getAuth(context);
+        logger.info('Auth status requested: authenticated', { athleteId: auth.athlete.id });
         return {
           authenticated: true,
-          athlete: ensured.athlete,
-          mode: ensured.mode,
+          athlete: auth.athlete,
+          mode: auth.mode,
+          expiresAt: auth.expiresAt,
+          scope: auth.scope,
         };
       } catch (error) {
-        logger.warn('Stored session invalid, clearing local auth state', error);
-        await clearStoredAuth();
+        if (error instanceof RpcServiceError && error.code === 'AUTH_REQUIRED') {
+          logger.info('Auth status requested: not authenticated');
+        } else {
+          logger.warn('Stored OAuth session invalid, clearing local auth state', error);
+          await clearStoredAuth();
+        }
         return { authenticated: false };
       }
     },
 
-    async login(context?: RequestContext): Promise<AuthStatus> {
-      logger.info('Attempting browser-session login');
-      const athlete = await probeSession(context);
-      const auth: StoredAuthSession = {
-        mode: 'browser-session',
-        athlete,
-        lastValidatedAt: now(),
-      };
+    async startAuth(returnTo: string): Promise<AuthStartPayload> {
+      await bridgeFetch<{ ok: boolean; now: number }>('/health');
+      const authUrl = new URL('/auth/strava/start', AUTH_BRIDGE_BASE);
+      authUrl.searchParams.set('return_to', returnTo);
+      return { authUrl: authUrl.toString() };
+    },
 
-      await setStoredAuth(auth);
-      logger.info('Browser-session login succeeded', { athleteId: athlete.id });
-
+    async consumeSession(sessionId: string): Promise<AuthStatus> {
+      logger.info('Consuming OAuth bridge session');
+      const session = await bridgeFetch<BridgeSessionResponse>('/auth/strava/session/consume', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId }),
+      });
+      await clearCache();
+      const auth = await hydrateStoredAuth(session);
+      logger.info('OAuth bridge login succeeded', { athleteId: auth.athlete.id });
       return {
         authenticated: true,
         athlete: auth.athlete,
         mode: auth.mode,
+        expiresAt: auth.expiresAt,
+        scope: auth.scope,
       };
     },
 
+    async login(): Promise<AuthStatus> {
+      throw new RpcServiceError(
+        'AUTH_FAILED',
+        'Use the OAuth bridge start flow instead of direct login.',
+      );
+    },
+
     async logout(): Promise<AuthStatus> {
-      logger.info('Clearing local session and cache');
+      const auth = await getStoredAuth();
+      if (auth) {
+        try {
+          await bridgeFetch<void>('/auth/strava/deauthorize', {
+            method: 'POST',
+            body: JSON.stringify({ accessToken: auth.accessToken }),
+          });
+        } catch (error) {
+          logger.warn('Failed to deauthorize Strava token during logout', error);
+        }
+      }
+
+      logger.info('Clearing local OAuth session and cache');
       await clearStoredAuth();
       await clearCache();
       return { authenticated: false };
@@ -366,7 +320,7 @@ export function createBackgroundService({
       logger.info('Loading kudos analytics', { activityId });
       const activities = await (async () => {
         const after = Math.floor((now() - 90 * 24 * 60 * 60 * 1000) / 1000);
-        return cached(`activities:90:30`, 10 * 60 * 1000, () =>
+        return cached('activities:90:30', 10 * 60 * 1000, () =>
           stravaFetch<StravaActivity[]>(`/athlete/activities?after=${after}&per_page=30`, context),
         );
       })();
@@ -399,10 +353,12 @@ export function createBackgroundService({
     async getSegmentInsights(context, segmentId: number): Promise<SegmentInsights> {
       logger.info('Loading segment insights', { segmentId });
       const [segment, activities] = await Promise.all([
-        cached(`segment:${segmentId}`, 30 * 60 * 1000, () => stravaFetch<StravaSegment>(`/segments/${segmentId}`, context)),
+        cached(`segment:${segmentId}`, 30 * 60 * 1000, () =>
+          stravaFetch<StravaSegment>(`/segments/${segmentId}`, context),
+        ),
         (async () => {
           const after = Math.floor((now() - 90 * 24 * 60 * 60 * 1000) / 1000);
-          const recentActivities = await cached(`activities:90:30`, 10 * 60 * 1000, () =>
+          const recentActivities = await cached('activities:90:30', 10 * 60 * 1000, () =>
             stravaFetch<StravaActivity[]>(`/athlete/activities?after=${after}&per_page=30`, context),
           );
           const selected = recentActivities.slice(0, 24);

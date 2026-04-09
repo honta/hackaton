@@ -91,19 +91,20 @@ export function AuthPrompt({
         <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/70">STRAVA Buddy</p>
         <h2 className="mt-3 text-2xl font-semibold">Unlock premium analytics on {pageLabel}.</h2>
         <p className="mt-2 text-sm text-white/85">
-          Use the Strava account already open in this browser to render live dashboard stats, kudos intelligence,
+          Connect through the local Strava OAuth bridge to render live dashboard stats, kudos intelligence,
           segment insights, and route heatmaps.
         </p>
       </div>
       <div className="space-y-4 px-6 py-5">
         <ul className="space-y-2 text-sm text-slate-600">
-          <li>No client ID, secret, or local auth bridge required</li>
+          <li>Uses official Strava OAuth tokens for the public v3 API</li>
+          <li>Requires the local `auth-bridge` server during development</li>
           <li>Dashboard totals, streaks, charts, and achievements</li>
           <li>Recent kudos leaderboard with fan badges</li>
           <li>Sampled segment performance and route heatmap</li>
         </ul>
         <p className="text-xs leading-5 text-slate-500">
-          Make sure you are already signed in on `strava.com` in this browser before clicking connect.
+          Start `auth-bridge`, configure your Strava client ID and secret, then click connect.
         </p>
         {errorMessage ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -116,7 +117,7 @@ export function AuthPrompt({
           onClick={onConnect}
           type="button"
         >
-          {loading ? 'Connecting...' : 'Use current Strava session'}
+          {loading ? 'Connecting...' : 'Connect with Strava OAuth'}
         </button>
       </div>
     </Panel>
