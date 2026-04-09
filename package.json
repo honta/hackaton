@@ -1,0 +1,14 @@
+{
+  "name": "hackaton-strava-extension",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "workspaces": [
+    "extension",
+    "auth-bridge"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
